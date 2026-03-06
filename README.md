@@ -1,6 +1,124 @@
-# Spring Boot 3 Actuator Test Project
+# Spring Boot 3 Library Project - Actuator & Security Headers
 
-This project demonstrates the correct way to customize the health endpoint in Spring Boot 3 Actuator.
+This project provides **auto-configurable Spring Boot 3 libraries** for:
+1. ✅ **Custom Health Endpoint** - Extend actuator health with custom indicators
+2. ✅ **Security Headers Filter** - Automatically add OWASP-recommended security headers
+
+Both libraries work out-of-the-box when added as dependencies to Spring Boot applications!
+
+---
+
+## Quick Start
+
+### Add Dependency
+
+```xml
+<dependency>
+    <groupId>com.example</groupId>
+    <artifactId>actuator-test</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+</dependency>
+```
+
+### That's It!
+
+Your application now has:
+- ✅ Custom health indicator contributing to `/actuator/health`
+- ✅ OWASP security headers on all HTTP responses
+- ✅ Zero configuration required!
+
+---
+
+## Features
+
+### 1. Custom Health Indicator
+
+Automatically contributes to Spring Boot Actuator's health endpoint.
+
+**Response includes:**
+```json
+{
+  "status": "UP",
+  "components": {
+    "customHealthIndicator": {
+      "status": "UP",
+      "details": {
+        "custom": "true",
+        "service": "my-service",
+        "timestamp": 1234567890
+      }
+    },
+    "diskSpace": { ... },
+    "ping": { ... }
+  }
+}
+```
+
+### 2. Security Headers Filter
+
+Automatically adds these headers to all HTTP responses:
+
+| Header | Value | Protection |
+|--------|-------|------------|
+| **X-Frame-Options** | DENY | Clickjacking |
+| **X-Content-Type-Options** | nosniff | MIME sniffing |
+| **X-XSS-Protection** | 1; mode=block | XSS attacks |
+| **Referrer-Policy** | strict-origin-when-cross-origin | Information leakage |
+| **Content-Security-Policy** | default-src 'self' | XSS, data injection |
+| **Permissions-Policy** | geolocation=(), microphone=(), camera=() | Feature abuse |
+| **Strict-Transport-Security** | max-age=31536000; includeSubDomains | HTTPS enforcement |
+
+---
+
+## Configuration (Optional)
+
+### Disable Specific Features
+
+```properties
+# Disable security headers (health still works)
+security.headers.enabled=false
+
+# Disable health indicator (security headers still work)
+management.endpoint.health.enabled=false
+```
+
+### Customize Security Headers
+
+```properties
+# Relax CSP for development
+security.headers.content-security-policy.value=default-src 'self' 'unsafe-inline'
+
+# Allow framing from same origin
+security.headers.x-frame-options.value=SAMEORIGIN
+
+# Customize HSTS
+security.headers.hsts.max-age=63072000
+security.headers.hsts.include-sub-domains=true
+
+# Add custom headers
+security.headers.custom.X-API-Version=1.0.0
+security.headers.custom.X-Custom-Header=my-value
+
+# Disable specific headers
+security.headers.x-powered-by.enabled=false
+security.headers.server.enabled=false
+```
+
+### YAML Configuration
+
+```yaml
+security:
+  headers:
+    enabled: true
+    order: -100
+    hsts:
+      max-age: 31536000
+      include-sub-domains: true
+    custom:
+      X-API-Version: "1.0.0"
+```
+
+---
 
 ## Project Structure
 
@@ -8,17 +126,219 @@ This project demonstrates the correct way to customize the health endpoint in Sp
 ActuatorTest/
 ├── pom.xml                                    # Maven configuration with Spring Boot 3.2.0
 ├── src/main/java/com/example/actuatortest/
-│   ├── ActuatorTestApplication.java          # Main application class with debug helper
-│   └── endpoint/
-│       ├── CustomHealthEndpoint.java         # ❌ WRONG approach (causes handler mapping issue)
-│       └── CustomHealthIndicator.java        # ✅ CORRECT approach (HealthIndicator)
-└── src/main/resources/
-    └── application.properties                # Actuator configuration
+│   ├── ActuatorTestApplication.java          # Main application class
+│   └── config/
+│       ├── CustomHealthEndpointAutoConfiguration.java  # Health indicator auto-config
+│       ├── ActuatorEndpointAutoConfiguration.java      # Endpoint properties
+│       ├── SecurityHeadersFilter.java                  # Security headers filter
+│       ├── SecurityHeaderProperties.java               # Filter configuration
+│       └── SecurityHeadersAutoConfiguration.java       # Filter auto-config
+├── src/main/resources/
+│   ├── application.properties                # Example configuration
+│   └── META-INF/spring/
+│       └── org.springframework.boot.autoconfigure.AutoConfiguration.imports
+└── src/test/java/
+    └── com/example/actuatortest/config/
+        └── SecurityHeadersFilterTest.java    # Unit tests
 ```
 
-## The Problem: Handler Mapping Issue
+---
 
-When you create `@Endpoint(id = "health")` to override the built-in health endpoint, you may encounter:
+## Testing
+
+### Run Unit Tests
+
+```bash
+cd /Users/bob/test_project/ActuatorTest
+mvn clean test
+```
+
+Expected output:
+```
+[INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+### Test Security Headers
+
+```bash
+# Start application
+mvn spring-boot:run
+
+# In another terminal, check response headers
+curl -I http://localhost:8080/api/endpoint
+```
+
+Expected response:
+```http
+HTTP/1.1 200 OK
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Content-Security-Policy: default-src 'self'; frame-ancestors 'none'
+Permissions-Policy: geolocation=(), microphone=(), camera=()
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+### Test Health Endpoint
+
+```bash
+curl http://localhost:8080/actuator/health | jq .
+```
+
+Expected response:
+```json
+{
+  "status": "UP",
+  "components": {
+    "customHealthIndicator": {
+      "status": "UP",
+      "details": {
+        "custom": "true",
+        "service": "my-service"
+      }
+    },
+    "diskSpace": { ... },
+    "ping": { ... }
+  }
+}
+```
+
+---
+
+## How It Works
+
+### Auto-Configuration Magic
+
+When you add this library as a dependency:
+
+1. **Spring Boot scans** `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
+2. **Discovers configuration classes**:
+   - `SecurityHeadersAutoConfiguration`
+   - `CustomHealthEndpointAutoConfiguration`
+3. **Checks conditions**:
+   - Is it a web application? ✅
+   - Servlet API present? ✅
+   - Not disabled via properties? ✅
+4. **Creates beans automatically**:
+   - Security headers filter
+   - Custom health indicator
+5. **Your application now has enhanced security and health monitoring!** 🎉
+
+### Conditional Loading
+
+The library only activates when appropriate:
+
+```java
+@ConditionalOnWebApplication      // Only for web apps
+@ConditionalOnClass({Filter.class}) // Servlet API required
+@ConditionalOnProperty(            // Can be disabled
+    name = "security.headers.enabled",
+    havingValue = "true",
+    matchIfMissing = true
+)
+```
+
+---
+
+## Advanced Usage
+
+### Override Default Configuration
+
+Create your own bean to replace defaults:
+
+```java
+@Configuration
+public class CustomConfig {
+    
+    @Bean
+    public SecurityHeadersFilter myCustomFilter() {
+        return new MyCustomSecurityHeadersFilter();
+    }
+}
+```
+
+Since we use `@ConditionalOnMissingBean`, your bean replaces the default!
+
+### Extend the Filter
+
+```java
+public class MyCustomFilter extends SecurityHeadersFilter {
+    
+    @Override
+    protected void addSecurityHeaders(HttpServletResponse response, HttpServletRequest request) {
+        // Call parent for standard headers
+        super.addSecurityHeaders(response, request);
+        
+        // Add custom logic
+        if (request.getRequestURI().startsWith("/api/")) {
+            response.setHeader("X-API-Security", "enhanced");
+        }
+    }
+}
+```
+
+### Integration with Spring Security
+
+If you're using Spring Security, you can still use this filter alongside Spring Security's headers:
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) {
+        http
+            .headers(headers -> headers
+                .frameOptions(frame -> frame.sameOrigin())
+                // Spring Security headers
+            );
+        // Our auto-configured filter runs separately
+        return http.build();
+    }
+}
+```
+
+---
+
+## Troubleshooting
+
+### Security Headers Not Appearing
+
+**Check:**
+1. Is it a web application? (`@ConditionalOnWebApplication`)
+2. Is Servlet API on classpath?
+3. Is filter disabled? (`security.headers.enabled=false`)
+4. Check logs for: `Loaded EnvironmentPostProcessor`
+
+**Debug:**
+```properties
+logging.level.com.example.actuatortest=DEBUG
+```
+
+### Health Endpoint Returns 404
+
+**Check:**
+1. Is actuator enabled? (`management.endpoint.health.enabled=true`)
+2. Is exposure configured? (`management.endpoints.web.exposure.include=health`)
+3. Check startup logs for endpoint registration
+
+### HSTS Header Not Showing
+
+**Remember:** HSTS only applies to HTTPS requests!
+- Make sure request is HTTPS (`request.isSecure()`)
+- Check HSTS is enabled: `security.headers.hsts.enabled=true`
+
+### Conflicting Headers
+
+If another library or proxy sets different headers:
+1. Adjust filter order: `security.headers.order=-200` (higher priority)
+2. Disable conflicting headers in configuration
+3. Configure proxy to not override headers
+
+---
 
 1. **404 Error** when accessing `/actuator/health`
 2. **SimpleUrlHandlerMapping** is used instead of **WebMvcEndpointHandlerMapping**

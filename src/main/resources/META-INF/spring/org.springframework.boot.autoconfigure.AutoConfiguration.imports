@@ -1,3 +1,4 @@
 com.example.actuatortest.config.ActuatorEndpointAutoConfiguration
 com.example.actuatortest.config.CustomHealthEndpointAutoConfiguration
 com.example.actuatortest.config.ActuatorAutoConfigurationMarker
+com.example.actuatortest.config.SecurityHeadersAutoConfiguration
